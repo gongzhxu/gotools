@@ -11,6 +11,7 @@ import (
 	"io"
 	"io/ioutil"
 	"os"
+	"os/exec"
 	"path/filepath"
 	"runtime"
 	"strings"
@@ -43,14 +44,34 @@ var (
 	gofmtTabIndent bool
 )
 
-//func init
+// func init
 func init() {
-	Command.Flag.BoolVar(&gofmtList, "l", false, "list files whose formatting differs from goimport's")
+	Command.Flag.BoolVar(
+		&gofmtList,
+		"l",
+		false,
+		"list files whose formatting differs from goimport's",
+	)
 	Command.Flag.BoolVar(&gofmtWrite, "w", false, "write result to (source) file instead of stdout")
 	Command.Flag.BoolVar(&gofmtDiff, "d", false, "display diffs instead of rewriting files")
-	Command.Flag.BoolVar(&gofmtAllErrors, "e", false, "report all errors (not just the first 10 on different lines)")
-	Command.Flag.BoolVar(&gofmtFixImports, "fiximports", false, "updates Go import lines, adding missing ones and removing unreferenced ones")
-	Command.Flag.BoolVar(&gofmtSortImports, "sortimports", false, "sort Go import lines use goimports style")
+	Command.Flag.BoolVar(
+		&gofmtAllErrors,
+		"e",
+		false,
+		"report all errors (not just the first 10 on different lines)",
+	)
+	Command.Flag.BoolVar(
+		&gofmtFixImports,
+		"fiximports",
+		false,
+		"updates Go import lines, adding missing ones and removing unreferenced ones",
+	)
+	Command.Flag.BoolVar(
+		&gofmtSortImports,
+		"sortimports",
+		false,
+		"sort Go import lines use goimports style",
+	)
 	Command.Flag.BoolVar(&gofmtUseGodiffLib, "godiff", true, "diff use godiff library")
 
 	// layout control
@@ -125,7 +146,23 @@ func processFile(filename string, in io.Reader, out io.Writer, stdin bool) error
 		return err
 	}
 
-	res, err := imports.Process(filename, src, options)
+	golinesCmd := exec.Command("golines")
+	golinesIn, err := golinesCmd.StdinPipe()
+	if err != nil {
+		return err
+	}
+
+	go func() {
+		defer golinesIn.Close()
+		_, _ = golinesIn.Write(src)
+	}()
+
+	res, err := golinesCmd.Output()
+	if err != nil {
+		return err
+	}
+
+	res, err = imports.Process(filename, res, options)
 	if err != nil {
 		return err
 	}
@@ -135,6 +172,7 @@ func processFile(filename string, in io.Reader, out io.Writer, stdin bool) error
 		if gofmtList {
 			fmt.Fprintln(out, filename)
 		}
+
 		if gofmtWrite {
 			err = ioutil.WriteFile(filename, res, 0)
 			if err != nil {
@@ -155,6 +193,7 @@ func processFile(filename string, in io.Reader, out io.Writer, stdin bool) error
 				return fmt.Errorf("computing diff: %s", err)
 			}
 			fmt.Fprintf(out, "diff %s gofmt/%s\n", filename, filename)
+
 			out.Write(data)
 		}
 	}
